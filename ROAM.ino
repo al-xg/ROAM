@@ -19,7 +19,7 @@ volatile uint16_t interrupt_count[100]={
 volatile uint16_t interrupt_start[100]={
   0}; // 100 possible arduino pins
 unsigned long timestart=0;
-//int16_t 
+//int16_t
 // unThrottleInStart = TCNT1;
 
 
@@ -31,13 +31,21 @@ double Setpoint_right, right_sonar, Output_right;
 double Setpoint_front, left_sonar, Output_front;
 double Setpoint_left, front_sonar, Output_left;
 double Setpoint_rear, rear_sonar, Output_rear;
-int PIDSampleTime=100;
+double PIDSampleTime=100; //interval in ms
+double safe_distance=90; //value in cm
+double OutMax=600; //value in ms
+
+double P=7;
+double  I=3;
+double  D=0;
+
+
 
 //Specify the links and initial tuning parameters
-PID myPID_right(&right_sonar, &Output_right, &Setpoint_right,1.75,1,0, DIRECT);
-PID myPID_front(&front_sonar, &Output_front, &Setpoint_front,1.75,1,0, DIRECT);
-PID myPID_left(&left_sonar, &Output_left, &Setpoint_left,1.75,1,0, DIRECT);
-PID myPID_rear(&rear_sonar, &Output_rear, &Setpoint_rear,1.75,1,0, DIRECT);
+PID myPID_right(&right_sonar, &Output_right, &Setpoint_right,P,I,D, DIRECT);
+PID myPID_front(&front_sonar, &Output_front, &Setpoint_front,P,I,D, DIRECT);
+PID myPID_left(&left_sonar, &Output_left, &Setpoint_left,P,I,D, DIRECT);
+PID myPID_rear(&rear_sonar, &Output_rear, &Setpoint_rear,P,I,D, DIRECT);
 
 #include <RCArduinoFastLib.h>
 
@@ -54,11 +62,6 @@ PID myPID_rear(&rear_sonar, &Output_rear, &Setpoint_rear,1.75,1,0, DIRECT);
 #define chanel3_INDEX 2
 #define chanel4_INDEX 3
 #define SERVO_FRAME_SPACE 4
-
-
-//
-double safe_distance=80; //value in cm
-//double bottom_sonar, top_sonar;
 
 double pitch_in=1500;
 double roll_in=1500;
@@ -79,13 +82,13 @@ void quicfunc() {
   }
   else{
     if (interrupt_start[PCintPort::arduinoPin]<TCNT1){
-      interrupt_count[PCintPort::arduinoPin]=(TCNT1-interrupt_start[PCintPort::arduinoPin])>>1;         
-    } 
+      interrupt_count[PCintPort::arduinoPin]=(TCNT1-interrupt_start[PCintPort::arduinoPin])>>1;
+    }
     else {
       tmmpa=interrupt_start[PCintPort::arduinoPin]+32768;
       tmmpb=TCNT1+32768;
 
-      interrupt_count[PCintPort::arduinoPin]=(tmmpb-tmmpa)>>1; 
+      interrupt_count[PCintPort::arduinoPin]=(tmmpb-tmmpa)>>1;
     }
   }
 }
@@ -94,13 +97,6 @@ void PCpin(int pin){
   pinMode(pin,INPUT);
   digitalWrite(pin, LOW);
   PCintPort::attachInterrupt(pin, &quicfunc, CHANGE);
-}
-
-void buzzer(){
-  if(right_sonar<Setpoint_right+20)
-    analogWrite(piezzo,Output_right);
-  else
-    analogWrite(piezzo,0);
 }
 
 void Sonar_pulse(){
@@ -114,7 +110,7 @@ void setup() {
   pinMode(13,OUTPUT);
   pinMode(2,OUTPUT);
   digitalWrite(13, LOW);
-  //pinMode(PIN2, INPUT);	
+  //pinMode(PIN2, INPUT);
 
   //sensors
   PCpin(A8);//62
@@ -135,22 +131,18 @@ void setup() {
   //PCpin(11);
 
 
-  Serial.begin(115200);
+  Serial.begin(57600);
   Serial.println("---------------------------------------");
-
 
   pinMode(chanel1_OUT_PIN,OUTPUT);
   pinMode(chanel2_OUT_PIN,OUTPUT);
   pinMode(chanel3_OUT_PIN,OUTPUT);
   pinMode(chanel4_OUT_PIN,OUTPUT);
 
-
-
   CRCArduinoFastServos::attach(chanel1_INDEX,chanel1_OUT_PIN);
   CRCArduinoFastServos::attach(chanel2_INDEX,chanel2_OUT_PIN);
   CRCArduinoFastServos::attach(chanel3_INDEX,chanel3_OUT_PIN);
   CRCArduinoFastServos::attach(chanel4_INDEX,chanel4_OUT_PIN);
-
 
   // lets set a standard rate of 50 Hz by setting a frame space of 10 * 2000 = 3 Servos + 7 times 2000
   CRCArduinoFastServos::setFrameSpaceA(SERVO_FRAME_SPACE,6*2000);
@@ -168,10 +160,9 @@ void setup() {
   work_time	= millis();
   myPID_right.SetSampleTime(PIDSampleTime);
   myPID_left.SetSampleTime(PIDSampleTime);
-  myPID_right.SetOutputLimits(0,350);
-  myPID_left.SetOutputLimits(0,350);
+  myPID_right.SetOutputLimits(0,OutMax);
+  myPID_left.SetOutputLimits(0,OutMax);
 }
-
 
 void report(){
   report_time	= millis();
@@ -179,7 +170,7 @@ void report(){
   Serial.print(F("{TIMEPLOT:PID|data|Output_right|T|"));
   Serial.print(Output_right);
   Serial.print(F("}"));
-  
+
   Serial.print(F("{TIMEPLOT:PID|data|Output_left|T|"));
   Serial.print(Output_left);
   Serial.print(F("}"));
@@ -191,11 +182,11 @@ void report(){
   Serial.print(F("{TIMEPLOT:PID|data|RightSonar|T|"));
   Serial.print(right_sonar);
   Serial.print(F("}"));
-  
+
   Serial.print(F("{TIMEPLOT:PID|data|LeftSonar|T|"));
   Serial.print(left_sonar);
   Serial.print(F("}"));
-  
+
   Serial.print(F("{TIMEPLOT:PID|data|AileronOut|T|"));
   Serial.print(compd_roll);
   Serial.print(F("}"));
@@ -205,42 +196,42 @@ void report(){
   Serial.println(F("}"));
 
   /*Serial.print(F("{TIMEPLOT:PID|data|Mode Switch|T|"));
-  Serial.print(mode_switch);
-  Serial.println(F("}"));
+   Serial.print(mode_switch);
+   Serial.println(F("}"));
 
-  Serial.print(F("{TIMEPLOT:PIDsettings|data|Kd|T|"));
-  Serial.print(myPID_right.GetKd());
-  Serial.println(F("}"));
+   Serial.print(F("{TIMEPLOT:PIDsettings|data|Kd|T|"));
+   Serial.print(myPID_right.GetKd());
+   Serial.println(F("}"));
 
-  Serial.print(F("{TIMEPLOT:PIDsettings|data|Ki|T|"));
-  Serial.print(myPID_right.GetKi());
-  Serial.println(F("}"));
+   Serial.print(F("{TIMEPLOT:PIDsettings|data|Ki|T|"));
+   Serial.print(myPID_right.GetKi());
+   Serial.println(F("}"));
 
-  Serial.print(F("{TIMEPLOT:PIDsettings|data|Kp|T|"));
-  Serial.print(myPID_right.GetKp());
-  Serial.println(F("}"));
-*/
+   Serial.print(F("{TIMEPLOT:PIDsettings|data|Kp|T|"));
+   Serial.print(myPID_right.GetKp());
+   Serial.println(F("}"));
+   */
   /*Serial.print(F("{TIMEPLOT:Variables|data|millis()|T|"));
    Serial.print(millis());
    Serial.println(F("}"));
-   
+
    Serial.print(F("{TIMEPLOT:Variables|data|tmmpa|T|"));
    Serial.print(tmmpa);
    Serial.println(F("}"));
-   
+
    Serial.print(F("{TIMEPLOT:Variables|data|tmmpb|T|"));
    Serial.print(tmmpb);
    Serial.println(F("}"));
-   
+
    Serial.print(F("{TIMEPLOT:Variables|data|tmp_time|T|"));
    Serial.print(tmp_time);
    Serial.println(F("}"));
-   
+
    Serial.print(F("{TIMEPLOT:Variables|data|TCNT1|T|"));
    Serial.print(TCNT1);
    Serial.print(F("}"));
-   
-   
+
+
    Serial.print("{MESSAGE:");
    Serial.print(channelName);
    Serial.print("|data|");
@@ -250,7 +241,7 @@ void report(){
    Serial.print(",");
    Serial.print(right_sonar);
    Serial.println("}");
-   
+
    */
   //Serial.print(" \n");
 
@@ -258,6 +249,7 @@ void report(){
 
 void workloop(){
   work_time	= millis();
+  
   right_sonar= (interrupt_count[62])/58; //value in cm
   //front_sonar= (interrupt_count[63])/58; //value in cm
   left_sonar= (interrupt_count[64])/58; //value in cm
@@ -273,17 +265,25 @@ void workloop(){
   myPID_left.Compute();
   //myPID_rear.Compute();
 
+  //Send trigger pulse to sonars
   Sonar_pulse();
 
   if(mode_switch>1400){
     compd_roll=(roll_in-int(Output_right)+int(Output_left));
+    
+    //Cap PW out
     if (compd_roll<1100) compd_roll=1100;
     if (compd_roll>1950) compd_roll=1950;
-    buzzer();
+    
+    /* //buzzer
+    if(right_sonar<(Setpoint_right+20)) analogWrite(piezzo,Output_right);
+    else analogWrite(piezzo,0);*/
   }
-   else compd_roll=roll_in;
-
-
+    
+  else {
+    compd_roll=roll_in;
+    //analogWrite(piezzo,0);
+  }
 
   //CRCArduinoFastServos::writeMicroseconds(chanel1_INDEX,compd_pitch);
   CRCArduinoFastServos::writeMicroseconds(chanel2_INDEX,compd_roll);
@@ -295,7 +295,7 @@ void workloop(){
 void loop() {
   tmp_time=millis();
 
-  if (tmp_time  >report_time+ 100){	
+  if (tmp_time  >report_time+ 100){
     report();
   }
 
@@ -303,6 +303,8 @@ void loop() {
     workloop();
   }
 }
+
+
 
 
 
