@@ -39,13 +39,26 @@ double P=7;
 double  I=3;
 double  D=0;
 
-
-
 //Specify the links and initial tuning parameters
 PID myPID_right(&right_sonar, &Output_right, &Setpoint_right,P,I,D, DIRECT);
 PID myPID_front(&front_sonar, &Output_front, &Setpoint_front,P,I,D, DIRECT);
 PID myPID_left(&left_sonar, &Output_left, &Setpoint_left,P,I,D, DIRECT);
 PID myPID_rear(&rear_sonar, &Output_rear, &Setpoint_rear,P,I,D, DIRECT);
+
+
+
+#include "Wire.h"
+
+//The Arduino Wire library uses the 7-bit version of the address, so the code example uses 0x70 instead of the 8‑bit 0xE0
+#define FrontSensorAddress byte(0x70)
+#define RearSensorAddress byte(0x71)
+
+//The Sensor ranging command has a value of 0x51
+#define RangeCommand byte(0x51)
+//These are the two commands that need to be sent in sequence to change the sensor address
+#define ChangeAddressCommand1 byte(0xAA)
+#define ChangeAddressCommand2 byte(0xA5)
+
 
 #include <RCArduinoFastLib.h>
 
@@ -99,6 +112,42 @@ void PCpin(int pin){
   PCintPort::attachInterrupt(pin, &quicfunc, CHANGE);
 }
 
+//Commands the sensors to take a range reading
+void takeRangeReadings(){
+       Wire.beginTransmission(FrontSensorAddress);             //Start addressing 
+       Wire.write(RangeCommand);                             //send range command 
+       Wire.endTransmission();                                  //Stop and do something else now
+       Wire.beginTransmission(RearSensorAddress);             //Start addressing 
+       Wire.write(RangeCommand);                             //send range command 
+       Wire.endTransmission();                                  //Stop and do something else now
+}    
+
+//Returns the last range that the sensor determined in its last ranging cycle in centimeters. Returns 0 if there is no communication. 
+word requestFrontRange(){ 
+    Wire.requestFrom(FrontSensorAddress, byte(2));
+            if(Wire.available() >= 2){                            //Sensor responded with the two bytes 
+           byte HighByte = Wire.read();                        //Read the high byte back 
+           byte LowByte = Wire.read();                        //Read the low byte back 
+           word FrontRange = word(HighByte, LowByte);         //Make a 16-bit word out of the two bytes for the range 
+           return FrontRange; 
+        }
+        else { 
+        return word(0);                                             //Else nothing was received, return 0 
+    }
+}
+//Returns the last range that the sensor determined in its last ranging cycle in centimeters. Returns 0 if there is no communication. 
+word requestRearRange(){ 
+    Wire.requestFrom(RearSensorAddress, byte(2));
+            if(Wire.available() >= 2){                            //Sensor responded with the two bytes 
+           byte HighByte = Wire.read();                        //Read the high byte back 
+           byte LowByte = Wire.read();                        //Read the low byte back 
+           word RearRange = word(HighByte, LowByte);         //Make a 16-bit word out of the two bytes for the range 
+           return RearRange; 
+        }
+        else { 
+        return word(0);                                             //Else nothing was received, return 0 
+    }
+}
 void Sonar_pulse(){
   digitalWrite(trigger,LOW);
   digitalWrite(trigger,HIGH);
@@ -110,30 +159,36 @@ void setup() {
   pinMode(13,OUTPUT);
   pinMode(2,OUTPUT);
   digitalWrite(13, LOW);
-  //pinMode(PIN2, INPUT);
 
-  //sensors
-  PCpin(A8);//62
-  //PCpin(A9);
-  PCpin(A10);
-  //PCpin(A11);
-  //PCpin(A12);
-  //PCpin(A13);
-  //PCpin(A14);
-  //PCpin(A15);//69
+  //Mega sensors
+    //PCpin(A8);//62
+    //PCpin(A9);
+    //PCpin(A10);
+    //PCpin(A11);
+    //PCpin(A12);
+    //PCpin(A13);
+    //PCpin(A14);
+    //PCpin(A15);//69
+  
+  //Micro Sensors
+    //PCpin(11);
+    //PCpin(10);
+    //PCpin(9);
+    //PCpin(8);
 
-  //inputs
-  //PCpin(50);
-  PCpin(51);
-  //PCpin(52);
-  PCpin(53);
-  //PCpin(10);
-  //PCpin(11);
+  //RC inputs
+    //PCpin(50);
+    //PCpin(51);
+    //PCpin(52);
+    //PCpin(53);
+  
 
 
   Serial.begin(57600);
   Serial.println("---------------------------------------");
-
+  Wire.begin();//Initiate Wire library for I2C communications with I2CXL‑MaxSonar‑EZ
+  takeRangeReadings();
+  
   pinMode(chanel1_OUT_PIN,OUTPUT);
   pinMode(chanel2_OUT_PIN,OUTPUT);
   pinMode(chanel3_OUT_PIN,OUTPUT);
@@ -181,6 +236,14 @@ void report(){
 
   Serial.print(F("{TIMEPLOT:PID|data|RightSonar|T|"));
   Serial.print(right_sonar);
+  Serial.print(F("}"));
+  
+  Serial.print(F("{TIMEPLOT:PID|data|FrontSonar|T|"));
+  Serial.print(front_sonar);
+  Serial.print(F("}"));
+  
+  Serial.print(F("{TIMEPLOT:PID|data|RearSonar|T|"));
+  Serial.print(rear_sonar);
   Serial.print(F("}"));
 
   Serial.print(F("{TIMEPLOT:PID|data|LeftSonar|T|"));
@@ -250,23 +313,25 @@ void report(){
 void workloop(){
   work_time	= millis();
   
+   
+  front_sonar= requestFrontRange(); //read I2C sonar range. Value in cm
+  rear_sonar= requestRearRange(); //read I2C sonar range. Value in cm
   right_sonar= (interrupt_count[62])/58; //value in cm
-  //front_sonar= (interrupt_count[63])/58; //value in cm
   left_sonar= (interrupt_count[64])/58; //value in cm
-  //rear_sonar= (interrupt_count[65])/58; //value in cm
-
+ 
   //pitch_in= (interrupt_count[50]);
   roll_in= (interrupt_count[51]);
   //throttle_in= (interrupt_count[52]);
   mode_switch= (interrupt_count[53]);
 
   myPID_right.Compute();
-  //myPID_front.Compute();
+  myPID_front.Compute();
   myPID_left.Compute();
-  //myPID_rear.Compute();
+  myPID_rear.Compute();
 
   //Send trigger pulse to sonars
   Sonar_pulse();
+  takeRangeReadings();
 
   if(mode_switch>1400){
     compd_roll=(roll_in-int(Output_right)+int(Output_left));
