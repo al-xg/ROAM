@@ -1,9 +1,7 @@
 // PinChangeIntExample, version 1.1 Sun Jan 15 06:24:19 CST 2012
 // See the Wiki at http://code.google.com/p/arduino-pinchangeint/wiki for more information.
 
-#include <PinChangeInt.h>
-
-
+#include "PinChangeInt.h"
 
 uint8_t latest_interrupted_pin;
 unsigned long report_time;
@@ -11,8 +9,6 @@ unsigned long work_time;
 unsigned long tmp_time;
 unsigned int tmmpa;
 unsigned int tmmpb;
-
-char channelName[ ] = "debug";
 
 volatile uint16_t interrupt_count[100]={
   0}; // 100 possible arduino pins
@@ -22,45 +18,64 @@ unsigned long timestart=0;
 //int16_t
 // unThrottleInStart = TCNT1;
 
+#include "Wire.h"
+
+//The Arduino Wire library uses the 7-bit version of the address, so the code example uses 0x70 instead of the 8‑bit 0xE0
+const byte FrontI2C=0x70;
+const byte RearI2C=0x71;
+//byte LeftI2C=0x72;
+//byte RightI2C=0x73;
+//const byte SensorAddress[6];
+
+//The Sensor ranging command has a value of 0x51
+const byte RangeCommand=0x51;
+
+//Commands the sensors to take a range reading
+void takeRangeReading(byte SensorAddress){
+  Wire.beginTransmission(SensorAddress);             //Start addressing 
+  Wire.write(RangeCommand);                          //send range command 
+  Wire.endTransmission();
+}    
+
+//Returns the last range that the sensor determined in its last ranging cycle in centimeters. Returns 0 if there is no communication. 
+word requestRange(byte SensorAddress){ 
+  Wire.requestFrom(SensorAddress, byte(2));
+  if(Wire.available() >= 2){                //Sensor responded with the two bytes 
+    byte HighByte = Wire.read();            //Read the high byte back 
+    byte LowByte = Wire.read();             //Read the low byte back 
+    word Range = word(HighByte, LowByte);   //Make a 16-bit word out of the two bytes for the range 
+    return Range; 
+  }
+  else return word(0); //Else nothing was received, return 0
+}
 
 
-#include <PID_v1.h>
+//Meguno Link
+char channelName[ ] = "debug";
+
+
+#include "PID_v1.h"
 
 //Define Variables we'll be connecting to
 double Setpoint_right, right_sonar, Output_right;
 double Setpoint_front, left_sonar, Output_front;
 double Setpoint_left, front_sonar, Output_left;
 double Setpoint_rear, rear_sonar, Output_rear;
-double PIDSampleTime=100; //interval in ms
-double safe_distance=90; //value in cm
-double OutMax=600; //value in ms
-
-double P=7;
-double  I=3;
-double  D=0;
+const double PIDSampleTime=100; //interval in ms
+const double safe_distance=90; //value in cm
+const double OutMax=600; //value in ms
+const double P=7;
+const double I=3;
+const double D=0;
 
 //Specify the links and initial tuning parameters
-PID myPID_right(&right_sonar, &Output_right, &Setpoint_right,P,I,D, DIRECT);
-PID myPID_front(&front_sonar, &Output_front, &Setpoint_front,P,I,D, DIRECT);
-PID myPID_left(&left_sonar, &Output_left, &Setpoint_left,P,I,D, DIRECT);
-PID myPID_rear(&rear_sonar, &Output_rear, &Setpoint_rear,P,I,D, DIRECT);
+PID PID_right(&right_sonar, &Output_right, &Setpoint_right,P,I,D, DIRECT);
+PID PID_front(&front_sonar, &Output_front, &Setpoint_front,P,I,D, DIRECT);
+PID PID_left(&left_sonar, &Output_left, &Setpoint_left,P,I,D, DIRECT);
+PID PID_rear(&rear_sonar, &Output_rear, &Setpoint_rear,P,I,D, DIRECT);
 
 
-
-#include "Wire.h"
-
-//The Arduino Wire library uses the 7-bit version of the address, so the code example uses 0x70 instead of the 8‑bit 0xE0
-#define FrontSensorAddress byte(0x70)
-#define RearSensorAddress byte(0x71)
-
-//The Sensor ranging command has a value of 0x51
-#define RangeCommand byte(0x51)
-//These are the two commands that need to be sent in sequence to change the sensor address
-#define ChangeAddressCommand1 byte(0xAA)
-#define ChangeAddressCommand2 byte(0xA5)
-
-
-#include <RCArduinoFastLib.h>
+#include "RCArduinoFastLib.h"
 
 // Assign your channel out pins
 #define chanel1_OUT_PIN PIN6
@@ -76,20 +91,48 @@ PID myPID_rear(&rear_sonar, &Output_rear, &Setpoint_rear,P,I,D, DIRECT);
 #define chanel4_INDEX 3
 #define SERVO_FRAME_SPACE 4
 
+//PWM Sonars
+int trigger= 13;
+//int piezzo=12;
+
+void Sonar_pulse(){
+  digitalWrite(trigger,LOW);
+  digitalWrite(trigger,HIGH);
+  delayMicroseconds(20);
+  digitalWrite(trigger,LOW);
+}
+
+//RC Inputs/outputs
 double pitch_in=1500;
 double roll_in=1500;
 double throttle_in=900;
 double mode_switch=900;
+double aux1=900;
+double aux2=900;
 int compd_pitch, compd_roll, compd_throttle;
 
-int trigger= 13;
-int piezzo=2;
-//int green=11;
-//int blue=2;
-//int red=10;
+int ConstrainPWM(int PWM_out, int MinPW, int MaxPW){
+    if (PWM_out<MinPW) PWM_out=MinPW;
+    if (PWM_out>MaxPW) PWM_out=MaxPW;
+   return PWM_out;
+}
+
+#include "SatelliteReceiver.h"
+SatelliteReceiver Rx;
+
+void GetSpektrum(){
+  Rx.getFrame();
+  //roll_in=Rx.getAile();
+  //pitch_in=Rx.getElev();
+  //throttle_in=Rx.getThro();
+  //yaw_in=Rx.getRudd();
+  //mode_switch=Rx.getFlap();
+  //aux1= Rx.getGear();
+    aux2= Rx.getAux2();
+}
+
 
 void quicfunc() {
-  //latest_interrupted_pin=PCintPort::arduinoPin;
   if(1==PCintPort::pinState){
     interrupt_start[PCintPort::arduinoPin]=TCNT1;
   }
@@ -100,7 +143,6 @@ void quicfunc() {
     else {
       tmmpa=interrupt_start[PCintPort::arduinoPin]+32768;
       tmmpb=TCNT1+32768;
-
       interrupt_count[PCintPort::arduinoPin]=(tmmpb-tmmpa)>>1;
     }
   }
@@ -112,53 +154,13 @@ void PCpin(int pin){
   PCintPort::attachInterrupt(pin, &quicfunc, CHANGE);
 }
 
-//Commands the sensors to take a range reading
-void takeRangeReadings(){
-       Wire.beginTransmission(FrontSensorAddress);             //Start addressing 
-       Wire.write(RangeCommand);                             //send range command 
-       Wire.endTransmission();                                  //Stop and do something else now
-       Wire.beginTransmission(RearSensorAddress);             //Start addressing 
-       Wire.write(RangeCommand);                             //send range command 
-       Wire.endTransmission();                                  //Stop and do something else now
-}    
-
-//Returns the last range that the sensor determined in its last ranging cycle in centimeters. Returns 0 if there is no communication. 
-word requestFrontRange(){ 
-    Wire.requestFrom(FrontSensorAddress, byte(2));
-            if(Wire.available() >= 2){                            //Sensor responded with the two bytes 
-           byte HighByte = Wire.read();                        //Read the high byte back 
-           byte LowByte = Wire.read();                        //Read the low byte back 
-           word FrontRange = word(HighByte, LowByte);         //Make a 16-bit word out of the two bytes for the range 
-           return FrontRange; 
-        }
-        else { 
-        return word(0);                                             //Else nothing was received, return 0 
-    }
-}
-//Returns the last range that the sensor determined in its last ranging cycle in centimeters. Returns 0 if there is no communication. 
-word requestRearRange(){ 
-    Wire.requestFrom(RearSensorAddress, byte(2));
-            if(Wire.available() >= 2){                            //Sensor responded with the two bytes 
-           byte HighByte = Wire.read();                        //Read the high byte back 
-           byte LowByte = Wire.read();                        //Read the low byte back 
-           word RearRange = word(HighByte, LowByte);         //Make a 16-bit word out of the two bytes for the range 
-           return RearRange; 
-        }
-        else { 
-        return word(0);                                             //Else nothing was received, return 0 
-    }
-}
-void Sonar_pulse(){
-  digitalWrite(trigger,LOW);
-  digitalWrite(trigger,HIGH);
-  delayMicroseconds(20);
-  digitalWrite(trigger,LOW);
-}
 
 void setup() {
-  pinMode(13,OUTPUT);
-  pinMode(2,OUTPUT);
-  digitalWrite(13, LOW);
+  Serial.begin(57600);
+  //Serial1.begin(115200); //Spektrum serial
+  
+  pinMode(trigger,OUTPUT);   //Trigger pin for PWM Sonars
+  digitalWrite(trigger,LOW);
 
   //Mega sensors
     //PCpin(A8);//62
@@ -169,10 +171,10 @@ void setup() {
     //PCpin(A13);
     //PCpin(A14);
     //PCpin(A15);//69
-  
+
   //Micro Sensors
-    //PCpin(11);
-    //PCpin(10);
+    PCpin(11);
+    PCpin(10);
     //PCpin(9);
     //PCpin(8);
 
@@ -182,13 +184,12 @@ void setup() {
     //PCpin(52);
     //PCpin(53);
   
-
-
-  Serial.begin(57600);
-  Serial.println("---------------------------------------");
-  Wire.begin();//Initiate Wire library for I2C communications with I2CXL‑MaxSonar‑EZ
-  takeRangeReadings();
+  //Initiate Wire library for I2C communications with I2CXL‑MaxSonar‑EZ
+  Wire.begin();
+  takeRangeReading(FrontI2C);
+  takeRangeReading(RearI2C);
   
+  //Set up PWM outputs
   pinMode(chanel1_OUT_PIN,OUTPUT);
   pinMode(chanel2_OUT_PIN,OUTPUT);
   pinMode(chanel3_OUT_PIN,OUTPUT);
@@ -201,26 +202,37 @@ void setup() {
 
   // lets set a standard rate of 50 Hz by setting a frame space of 10 * 2000 = 3 Servos + 7 times 2000
   CRCArduinoFastServos::setFrameSpaceA(SERVO_FRAME_SPACE,6*2000);
-
   CRCArduinoFastServos::begin();
+  
 
+  //Initialise PID loops
   Setpoint_right= Setpoint_front = Setpoint_left = Setpoint_rear = safe_distance;
+  
+  PID_right.SetMode(AUTOMATIC);
+  PID_right.SetSampleTime(PIDSampleTime);
+  PID_right.SetOutputLimits(0,OutMax);
+  
+  PID_front.SetMode(AUTOMATIC);
+  PID_front.SetSampleTime(PIDSampleTime);
+  PID_front.SetOutputLimits(0,OutMax);
+ 
+  PID_left.SetMode(AUTOMATIC);
+  PID_left.SetSampleTime(PIDSampleTime);
+  PID_left.SetOutputLimits(0,OutMax);
+  
+  PID_rear.SetMode(AUTOMATIC);
+  PID_rear.SetSampleTime(PIDSampleTime);
+  PID_rear.SetOutputLimits(0,OutMax);
+  //pinMode(piezzo,OUTPUT); //Buzzer for PID output, find unused pin
 
-  //turn the PIDs on
-  myPID_right.SetMode(AUTOMATIC);
-  //myPID_front.SetMode(AUTOMATIC);
-  //myPID_left.SetMode(AUTOMATIC);
-  //myPID_rear.SetMode(AUTOMATIC);
+  
+  //Intialise loop timers
   report_time	= millis();
   work_time	= millis();
-  myPID_right.SetSampleTime(PIDSampleTime);
-  myPID_left.SetSampleTime(PIDSampleTime);
-  myPID_right.SetOutputLimits(0,OutMax);
-  myPID_left.SetOutputLimits(0,OutMax);
 }
 
 void report(){
-  report_time	= millis();
+  report_time = millis();
 
   Serial.print(F("{TIMEPLOT:PID|data|Output_right|T|"));
   Serial.print(Output_right);
@@ -237,11 +249,11 @@ void report(){
   Serial.print(F("{TIMEPLOT:PID|data|RightSonar|T|"));
   Serial.print(right_sonar);
   Serial.print(F("}"));
-  
+
   Serial.print(F("{TIMEPLOT:PID|data|FrontSonar|T|"));
   Serial.print(front_sonar);
   Serial.print(F("}"));
-  
+
   Serial.print(F("{TIMEPLOT:PID|data|RearSonar|T|"));
   Serial.print(rear_sonar);
   Serial.print(F("}"));
@@ -258,43 +270,43 @@ void report(){
   Serial.print(roll_in);
   Serial.println(F("}"));
 
-  /*Serial.print(F("{TIMEPLOT:PID|data|Mode Switch|T|"));
-   Serial.print(mode_switch);
+  /*Serial.print(F("{TIMEPLOT:PID|data|Aux1|T|"));
+   Serial.print(aux1);
    Serial.println(F("}"));
-
+   
    Serial.print(F("{TIMEPLOT:PIDsettings|data|Kd|T|"));
-   Serial.print(myPID_right.GetKd());
+   Serial.print(PID_right.GetKd());
    Serial.println(F("}"));
-
+   
    Serial.print(F("{TIMEPLOT:PIDsettings|data|Ki|T|"));
-   Serial.print(myPID_right.GetKi());
+   Serial.print(PID_right.GetKi());
    Serial.println(F("}"));
-
+   
    Serial.print(F("{TIMEPLOT:PIDsettings|data|Kp|T|"));
-   Serial.print(myPID_right.GetKp());
+   Serial.print(PID_right.GetKp());
    Serial.println(F("}"));
    */
   /*Serial.print(F("{TIMEPLOT:Variables|data|millis()|T|"));
    Serial.print(millis());
    Serial.println(F("}"));
-
+   
    Serial.print(F("{TIMEPLOT:Variables|data|tmmpa|T|"));
    Serial.print(tmmpa);
    Serial.println(F("}"));
-
+   
    Serial.print(F("{TIMEPLOT:Variables|data|tmmpb|T|"));
    Serial.print(tmmpb);
    Serial.println(F("}"));
-
+   
    Serial.print(F("{TIMEPLOT:Variables|data|tmp_time|T|"));
    Serial.print(tmp_time);
    Serial.println(F("}"));
-
+   
    Serial.print(F("{TIMEPLOT:Variables|data|TCNT1|T|"));
    Serial.print(TCNT1);
    Serial.print(F("}"));
-
-
+   
+   
    Serial.print("{MESSAGE:");
    Serial.print(channelName);
    Serial.print("|data|");
@@ -304,70 +316,79 @@ void report(){
    Serial.print(",");
    Serial.print(right_sonar);
    Serial.println("}");
-
+   
    */
   //Serial.print(" \n");
 
 }
 
 void workloop(){
-  work_time	= millis();
-  
-   
-  front_sonar= requestFrontRange(); //read I2C sonar range. Value in cm
-  rear_sonar= requestRearRange(); //read I2C sonar range. Value in cm
-  right_sonar= (interrupt_count[62])/58; //value in cm
-  left_sonar= (interrupt_count[64])/58; //value in cm
- 
-  //pitch_in= (interrupt_count[50]);
-  roll_in= (interrupt_count[51]);
-  //throttle_in= (interrupt_count[52]);
-  mode_switch= (interrupt_count[53]);
+  work_time = millis();
 
-  myPID_right.Compute();
-  myPID_front.Compute();
-  myPID_left.Compute();
-  myPID_rear.Compute();
+  //Refresh sensor readings
+    front_sonar= requestRange(FrontI2C); //read I2C sonar range, Value in cm
+    rear_sonar= requestRange(RearI2C); //read I2C sonar range, Value in cm
+    right_sonar= (interrupt_count[10])/58; //read PWM sonar range, value in cm
+    left_sonar= (interrupt_count[11])/58; //read PWM sonar range, value in cm
+  
+  //Refresh RC inputs  
+    //GetSpektrum();  
+      roll_in= (interrupt_count[51]);
+    //pitch_in= (interrupt_count[50]);
+    //throttle_in= (interrupt_count[52]);
+      aux1= (interrupt_count[53]);
+
+  //Run PID loops
+    PID_right.Compute();
+    PID_front.Compute();
+    PID_left.Compute();
+    PID_rear.Compute();
 
   //Send trigger pulse to sonars
-  Sonar_pulse();
-  takeRangeReadings();
+    Sonar_pulse();
+    takeRangeReading(FrontI2C);
+    takeRangeReading(RearI2C);
 
-  if(mode_switch>1400){
-    compd_roll=(roll_in-int(Output_right)+int(Output_left));
-    
-    //Cap PW out
-    if (compd_roll<1100) compd_roll=1100;
-    if (compd_roll>1950) compd_roll=1950;
-    
-    /* //buzzer
-    if(right_sonar<(Setpoint_right+20)) analogWrite(piezzo,Output_right);
-    else analogWrite(piezzo,0);*/
-  }
-    
-  else {
-    compd_roll=roll_in;
-    //analogWrite(piezzo,0);
-  }
+  //Do we want obstacle avoidance on?
+     if(aux1>1400){
+         compd_roll=(roll_in-int(Output_right)+int(Output_left));
+       //compd_pitch=(pitch_in-int(Output_rear)+int(Output_front)); //remember to check the direction of pitch before testing
+         compd_roll=ConstrainPWM(compd_roll,1100,1950);
+         compd_pitch=ConstrainPWM(compd_pitch,1100,1950);
+     }
+    else {
+      compd_roll=roll_in;
+      compd_pitch=pitch_in;
+    }
+
+  //buzzer
+     /*
+     if (aux2>1600){
+       if(right_sonar<(Setpoint_right+20)) analogWrite(piezzo,Output_right);
+       else analogWrite(piezzo,0);
+     }
+     else analogWrite(piezzo,0);
+     */
 
   //CRCArduinoFastServos::writeMicroseconds(chanel1_INDEX,compd_pitch);
-  CRCArduinoFastServos::writeMicroseconds(chanel2_INDEX,compd_roll);
+    CRCArduinoFastServos::writeMicroseconds(chanel2_INDEX,compd_roll);
   //CRCArduinoFastServos::writeMicroseconds(chanel3_INDEX,compd_throttle);
-  //CRCArduinoFastServos::writeMicroseconds(chanel4_INDEX,interrupt_count[63]);
+  //CRCArduinoFastServos::writeMicroseconds(chanel4_INDEX,mode_switch);
 }
 
 
 void loop() {
   tmp_time=millis();
-
+  
   if (tmp_time  >report_time+ 100){
     report();
-  }
-
+  } 
   if (tmp_time  >work_time + PIDSampleTime){
     workloop();
   }
-}
+    
+ }
+
 
 
 
