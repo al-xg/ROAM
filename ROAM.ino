@@ -58,8 +58,8 @@ char channelName[ ] = "debug";
 
 //Define Variables we'll be connecting to
 double Setpoint_right, right_sonar, Output_right;
-double Setpoint_front, left_sonar, Output_front;
-double Setpoint_left, front_sonar, Output_left;
+double Setpoint_front, front_sonar, Output_front;
+double Setpoint_left, left_sonar, Output_left;
 double Setpoint_rear, rear_sonar, Output_rear;
 const double PIDSampleTime=100; //interval in ms
 const double safe_distance=90; //value in cm
@@ -174,8 +174,8 @@ void setup() {
 
   //Micro Sensors
     PCpin(11);
-    PCpin(10);
-    //PCpin(9);
+    //PCpin(10);
+    PCpin(9);
     //PCpin(8);
 
   //RC inputs
@@ -328,15 +328,15 @@ void workloop(){
   //Refresh sensor readings
     front_sonar= requestRange(FrontI2C); //read I2C sonar range, Value in cm
     rear_sonar= requestRange(RearI2C); //read I2C sonar range, Value in cm
-    right_sonar= (interrupt_count[10])/58; //read PWM sonar range, value in cm
     left_sonar= (interrupt_count[11])/58; //read PWM sonar range, value in cm
-  
+    right_sonar= (interrupt_count[9])/58; //read PWM sonar range, value in cm
+    
   //Refresh RC inputs  
     //GetSpektrum();  
-      roll_in= (interrupt_count[51]);
+     // roll_in= (interrupt_count[51]);
     //pitch_in= (interrupt_count[50]);
     //throttle_in= (interrupt_count[52]);
-      aux1= (interrupt_count[53]);
+     // aux1= (interrupt_count[53]);
 
   //Run PID loops
     PID_right.Compute();
@@ -348,6 +348,7 @@ void workloop(){
     Sonar_pulse();
     takeRangeReading(FrontI2C);
     takeRangeReading(RearI2C);
+    
 
   //Do we want obstacle avoidance on?
      if(aux1>1400){
